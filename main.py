@@ -2,6 +2,18 @@ import cv2
 import numpy as np
 import mediapipe as mp
 import math
+import av
+import cv2
+import streamlit as st
+from streamlit_webrtc import webrtc_streamer
+
+def process(frame: av.VideoFrame) -> av.VideoFrame:
+    img = frame.to_ndarray(format="bgr24")
+    # your drowsiness detection here (EAR, landmarks, model, etc.)
+    return av.VideoFrame.from_ndarray(img, format="bgr24")
+
+st.title("Drowsiness Detection")
+webrtc_streamer(key="drowsiness", video_frame_callback=process)
 
 # Load Haar cascades (backup)
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
