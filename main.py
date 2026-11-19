@@ -14,7 +14,7 @@ from streamlit_webrtc import webrtc_streamer
 THRESHOLD = 15          # frames of closed eyes before "Sleepy"
 EAR_THRESHOLD = 0.25
 TARGET_W, TARGET_H = 640, 480
-ROAD_VIDEO = "video.mp4"
+ROAD_VIDEO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "video.mp4")
 
 RIGHT_EYE = [33, 159, 158, 133, 153, 145]
 LEFT_EYE = [362, 380, 374, 263, 386, 385]
@@ -153,37 +153,56 @@ road_placeholder = st.empty()
 status_placeholder = st.empty()
 
 if not os.path.exists(ROAD_VIDEO):
-    st.info(f"'{ROAD_VIDEO}' not found in the repo, so the road view is skipped.")
+    road_placeholder.error(
+        f"Road video not found at: {ROAD_VIDEO}. "
+        f"Files next to main.py: {sorted(os.listdir(os.path.dirname(ROAD_VIDEO)))}"
+    )
+elif not ctx.state.playing:
+    road_placeholder.info("Click START above. The road view appears once the webcam is running.")
 else:
     road_cam = cv2.VideoCapture(ROAD_VIDEO)
-    try:
-        while ctx.state.playing:
-            ok, rf = road_cam.read()
-            if not ok:
-                road_cam.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                continue
+    if not road_cam.isOpened():
+        road_placeholder.error(
+            "video.mp4 was found but OpenCV could not decode it (often an H.265/HEVC "
+            "or AV1 file). Re-encode it as H.264 with: "
+            "ffmpeg -i video.mp4 -vcodec libx264 -an -pix_fmt yuv420p video_h264.mp4"
+        )
+    else:
+        failures = 0
+        try:
+            while ctx.state.playing:
+                ok, rf = road_cam.read()
+                if not ok:
+                    failures += 1
+                    if failures > 5:
+                        road_placeholder.error("Could not read frames from video.mp4.")
+                        break
+                    road_cam.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    time.sleep(0.05)
+                    continue
+                failures = 0
 
-            rf = cv2.resize(rf, (TARGET_W, TARGET_H))
-            rf, lane_center = detect_lanes(rf)
+                rf = cv2.resize(rf, (TARGET_W, TARGET_H))
+                rf, lane_center = detect_lanes(rf)
 
-            with lock:
-                state = shared["state"]
+                with lock:
+                    state = shared["state"]
 
-            if state == "Sleepy" and lane_center is not None:
-                frame_center = TARGET_W / 2
-                if lane_center < frame_center - 15:
-                    instruction = "Turn Left"
-                elif lane_center > frame_center + 15:
-                    instruction = "Turn Right"
+                if state == "Sleepy" and lane_center is not None:
+                    frame_center = TARGET_W / 2
+                    if lane_center < frame_center - 15:
+                        instruction = "Turn Left"
+                    elif lane_center > frame_center + 15:
+                        instruction = "Turn Right"
+                    else:
+                        instruction = "Drive Straight"
+                    cv2.putText(rf, f"DRIVER SLEEPY - {instruction}", (30, 100),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 3, cv2.LINE_AA)
+                    status_placeholder.error("Driver is sleepy!")
                 else:
-                    instruction = "Drive Straight"
-                cv2.putText(rf, f"DRIVER SLEEPY - {instruction}", (30, 100),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 3, cv2.LINE_AA)
-                status_placeholder.error("Driver is sleepy!")
-            else:
-                status_placeholder.success("Driver is awake")
+                    status_placeholder.success("Driver is awake")
 
-            road_placeholder.image(rf, channels="BGR")
-            time.sleep(0.03)
-    finally:
-        road_cam.release()
+                road_placeholder.image(rf, channels="BGR")
+                time.sleep(0.03)
+        finally:
+            road_cam.release()
