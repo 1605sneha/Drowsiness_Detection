@@ -1,3 +1,4 @@
+import base64
 import math
 import os
 import threading
@@ -202,7 +203,13 @@ else:
                 else:
                     status_placeholder.success("Driver is awake")
 
-                road_placeholder.image(rf, channels="BGR")
-                time.sleep(0.03)
+                ok_jpg, buf = cv2.imencode(".jpg", rf, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                if ok_jpg:
+                    b64 = base64.b64encode(buf.tobytes()).decode()
+                    road_placeholder.markdown(
+                        f'<img src="data:image/jpeg;base64,{b64}" style="width:100%;max-width:640px;">',
+                        unsafe_allow_html=True,
+                    )
+                time.sleep(0.08)
         finally:
             road_cam.release()
